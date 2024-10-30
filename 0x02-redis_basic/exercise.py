@@ -1,6 +1,23 @@
 import redis
 import uuid
 from typing import Union, Callable, Optional, Any
+from functools import wraps
+
+def count_calls(method: Callable) -> Callable:
+    """Decorator to count how many times a method is called."""
+    
+    @wraps(method)
+    def wrapper(self, *args, **kwargs) -> Any:
+        # Generate a key using the qualified name of the method
+        key = method.__qualname__
+        
+        # Increment the call count in Redis
+        self._redis.incr(key)
+        
+        # Call the original method and return its result
+        return method(self, *args, **kwargs)
+    
+    return wrapper
 
 class Cache:
     def __init__(self) -> None:
@@ -8,6 +25,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         # Generate a random key
         key = str(uuid.uuid4())
@@ -39,22 +57,21 @@ class Cache:
     def get_int(self, key: str) -> Optional[int]:
         return self.get(key, fn=lambda x: int(x))
 
+    def get_call_count(self, method_name: str) -> int:
+        """Retrieve the call count for a method."""
+        return self._redis.get(method_name) or 0
+
 # Example usage
 if __name__ == "__main__":
     cache = Cache()
 
-    # Store a string
+    # Store some data
     key1 = cache.store("Hello, Redis!")
     print(f"Stored string with key: {key1}")
 
-    # Store an integer
     key2 = cache.store(123)
     print(f"Stored integer with key: {key2}")
 
-    # Retrieve the stored string
-    retrieved_str = cache.get_str(key1)
-    print(f"Retrieved string: {retrieved_str}")
-
-    # Retrieve the stored integer
-    retrieved_int = cache.get_int(key2)
-    print(f"Retrieved integer: {retrieved_int}")
+    # Get call counts
+    store_count = cache.get_call_count('Cache.store')
+    print(f"'store' method has been called {store_count} times.")
